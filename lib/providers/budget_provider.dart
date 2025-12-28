@@ -20,6 +20,7 @@ class BudgetProvider extends ChangeNotifier {
   List<Transaction> _transactions = [];
   List<Budget> _budgets = [];
   final Map<String, double> _monthlyIncomes = {};
+  final Map<String, double> _monthlyDebitOrders = {};
   late SharedPreferences _prefs;
   String _selectedCurrency = 'USD';
 
@@ -53,6 +54,8 @@ class BudgetProvider extends ChangeNotifier {
     _loadTransactions();
     _loadBudgets();
     _loadMonthlyIncomes();
+    _loadMonthlyDebitOrders();
+    await _migrateShoppingToClothing();
   }
 
   void _loadCurrency() {
@@ -104,6 +107,20 @@ class BudgetProvider extends ChangeNotifier {
     }
   }
 
+  void _loadMonthlyDebitOrders() {
+    final data = _prefs.getString('monthlyDebitOrders');
+    if (data != null) {
+      final Map<String, dynamic> decoded = json.decode(data);
+      _monthlyDebitOrders.clear();
+      decoded.forEach((key, value) {
+        final v = (value is num) ? value.toDouble() : double.tryParse('$value');
+        if (v != null) {
+          _monthlyDebitOrders[key] = v;
+        }
+      });
+    }
+  }
+
   void _saveTransactions() {
     _prefs.setString(
       'transactions',
@@ -122,6 +139,13 @@ class BudgetProvider extends ChangeNotifier {
     _prefs.setString(
       'monthlyIncomes',
       json.encode(_monthlyIncomes),
+    );
+  }
+
+  void _saveMonthlyDebitOrders() {
+    _prefs.setString(
+      'monthlyDebitOrders',
+      json.encode(_monthlyDebitOrders),
     );
   }
 
@@ -236,5 +260,59 @@ class BudgetProvider extends ChangeNotifier {
     _monthlyIncomes[_monthKey(month)] = amount;
     _saveMonthlyIncomes();
     notifyListeners();
+  }
+
+  double getMonthlyDebitOrders(DateTime month) {
+    return _monthlyDebitOrders[_monthKey(month)] ?? 0.0;
+  }
+
+  void setMonthlyDebitOrders(DateTime month, double amount) {
+    _monthlyDebitOrders[_monthKey(month)] = amount;
+    _saveMonthlyDebitOrders();
+    notifyListeners();
+  }
+
+  // One-time migration: rename 'Shopping' to 'Clothing' in stored data
+  Future<void> _migrateShoppingToClothing() async {
+    final migrated = _prefs.getBool('migrated_shopping_to_clothing') ?? false;
+    if (migrated) return;
+
+    bool changed = false;
+
+    for (int i = 0; i < _transactions.length; i++) {
+      final t = _transactions[i];
+      if (t.category == 'Shopping') {
+        _transactions[i] = Transaction(
+          id: t.id,
+          title: t.title,
+          amount: t.amount,
+          type: t.type,
+          category: 'Clothing',
+          date: t.date,
+          description: t.description,
+        );
+        changed = true;
+      }
+    }
+
+    for (int i = 0; i < _budgets.length; i++) {
+      final b = _budgets[i];
+      if (b.category == 'Shopping') {
+        _budgets[i] = Budget(
+          id: b.id,
+          category: 'Clothing',
+          amount: b.amount,
+          month: b.month,
+        );
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      _saveTransactions();
+      _saveBudgets();
+    }
+
+    await _prefs.setBool('migrated_shopping_to_clothing', true);
   }
 }

@@ -24,9 +24,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     'Food',
     'Transportation',
     'Entertainment',
-    'Shopping',
+    'Clothing',
     'Utilities',
     'Health',
+    'Maintenance',
     'Other'
   ];
 

@@ -15,15 +15,17 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
   late DateTime _selectedMonth;
   final Map<String, TextEditingController> _controllers = {};
   final TextEditingController _incomeController = TextEditingController();
+  final TextEditingController _debitOrdersController = TextEditingController();
 
   final List<String> expenseCategories = [
     'Savings',
     'Food',
     'Transportation',
     'Entertainment',
-    'Shopping',
+    'Clothing',
     'Utilities',
     'Health',
+    'Maintenance',
     'Other'
   ];
 
@@ -40,6 +42,10 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
     _incomeController.text = monthlyIncome > 0
         ? monthlyIncome.toStringAsFixed(2)
         : '';
+    final monthlyDebitOrders = budgetProvider.getMonthlyDebitOrders(_selectedMonth);
+    _debitOrdersController.text = monthlyDebitOrders > 0
+        ? monthlyDebitOrders.toStringAsFixed(2)
+        : '';
     for (var category in expenseCategories) {
       final budget = budgetProvider.getBudgetForCategory(category, _selectedMonth);
       _controllers[category] = TextEditingController(
@@ -51,6 +57,7 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
   @override
   void dispose() {
     _incomeController.dispose();
+    _debitOrdersController.dispose();
     for (var controller in _controllers.values) {
       controller.dispose();
     }
@@ -66,6 +73,12 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
       if (income > 0) {
         budgetProvider.setMonthlyIncome(_selectedMonth, income);
       }
+    }
+    // Save debit orders for this month if provided
+    final debitOrdersText = _debitOrdersController.text.trim();
+    if (debitOrdersText.isNotEmpty) {
+      final debitOrders = double.tryParse(debitOrdersText) ?? 0;
+      budgetProvider.setMonthlyDebitOrders(_selectedMonth, debitOrders);
     }
     
     for (var category in expenseCategories) {
@@ -110,6 +123,18 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
       return;
     }
 
+    // Subtract debit orders from income
+    final debitOrdersText = _debitOrdersController.text.trim();
+    final debitOrders = double.tryParse(debitOrdersText) ?? 0;
+    final availableIncome = income - debitOrders;
+
+    if (availableIncome <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Debit orders exceed income. No funds available for budgeting.')),
+      );
+      return;
+    }
+
     // Simple default allocation (approx 50/30/20 with finer granularity)
     final Map<String, double> pct = {
       'Savings': 0.20,
@@ -118,14 +143,15 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
       'Utilities': 0.10,
       'Health': 0.05,
       'Entertainment': 0.08,
-      'Shopping': 0.07,
+      'Clothing': 0.07,
+      'Maintenance': 0.05,
       'Other': 0.05,
     };
 
     setState(() {
       for (final cat in expenseCategories) {
         final p = pct[cat] ?? 0.0;
-        final value = (income * p);
+        final value = (availableIncome * p);
         _controllers[cat]?.text = value > 0 ? value.toStringAsFixed(2) : '';
       }
     });
@@ -172,28 +198,46 @@ class _BudgetAllocationScreenState extends State<BudgetAllocationScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _incomeController,
-                              decoration: InputDecoration(
-                                labelText: 'Amount',
-                                prefixText: budgetProvider.currencySymbol,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              keyboardType: TextInputType.number,
-                            ),
+                      TextField(
+                        controller: _incomeController,
+                        decoration: InputDecoration(
+                          labelText: 'Amount',
+                          prefixText: budgetProvider.currencySymbol,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: _estimateFromIncome,
-                            icon: const Icon(Icons.auto_awesome),
-                            label: const Text('Estimate'),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Monthly Debit Orders',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _debitOrdersController,
+                        decoration: InputDecoration(
+                          labelText: 'Amount',
+                          prefixText: budgetProvider.currencySymbol,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                        ],
+                          hintText: 'Fixed monthly payments',
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _estimateFromIncome,
+                          icon: const Icon(Icons.auto_awesome),
+                          label: const Text('Estimate Budget'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
                       ),
                     ],
                   ),
